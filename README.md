@@ -6,58 +6,95 @@ This Discord bot integrates AI features including text Q&A, image description, g
 
 ## Features & Commands
 
-### `/q`  
+### /q  
 Ask any question and get an AI-generated text answer.  
-**Alias:** `/ask`
+**Alias:** /ask
 
 ---
 
-### `/imginfo`  
+### /imginfo  
 Upload an image (with optional text) and get an AI-generated description of the image.
 
 ---
 
-### `/fix_grammar`  
+### /fix_grammar  
 Fix grammar, spelling, and phrasing of your input text.
 
 ---
 
-### `/voice`  
+### /voice  
 Ask a question and get the answer spoken aloud using VoiceVox TTS audio.
 
 ---
 
 ### Voice Channel Controls
 
-- **`/voice_channel_join [channel]`**  
-Make the bot join your current voice channel or a specified voice channel.
+- **/voice_channel_join [channel]**  
+  Make the bot join your current voice channel or a specified voice channel.
 
-- **`/voice_channel_exit`**  
-Disconnect the bot from the current voice channel.
+- **/voice_channel_exit**  
+  Disconnect the bot from the current voice channel.
 
 ---
 
 ### VoiceVox Settings
 
-- **`/change_speaker <speaker_id>`**  
-Change the default VoiceVox speaker ID for voice synthesis.
+- **/change_speaker `<speaker_id>`**  
+  Change the default VoiceVox speaker ID for voice synthesis.
+
+- **/reset_speaker**  
+  Reset the VoiceVox speaker ID to the default setting.
+
+- **/change_speed_scale `<speed>`**  
+  Change the VoiceVox speech speed.
+
+- **/change_pitch_scale `<pitch>`**  
+  Change the VoiceVox pitch.
+
+- **/change_intonation_scale `<intonation>`**  
+  Change the VoiceVox intonation.
+
+- **/change_volume_scale `<volume>`**  
+  Change the VoiceVox volume.
+
+- **/change_pause_length_scale `<pause_length_scale>`**  
+  Change the VoiceVox pause length scale.
+
+- **/show_config**  
+  Show the current VoiceVox configuration.
+
+- **/reset_config**  
+  Reset the VoiceVox configuration to default values.
 
 ---
 
 ### Gemini AI Settings
 
-- **`/change_system_prompt <prompt>`**  
-Change the system prompt that steers Gemini AI’s response style and persona.
+- **/change_system_prompt `<prompt>`**  
+  Change the system prompt that steers Gemini AI’s response style and persona.
+
+- **/reset_system_prompt**  
+  Reset the Gemini system prompt to its default value.
+
+- **/change_gemini_model**  
+  Change the Gemini AI model used by the bot.
 
 ---
 
-## Usage
+### Chat History Controls
 
-1. Use `/q` or `/ask` to interact with the AI via text.
-2. Use `/voice` to get AI responses spoken with VoiceVox TTS in your voice channel.
-3. Use `/voice_channel_join` to summon the bot into your voice channel.
-4. Upload images with `/imginfo` to get AI-generated image descriptions.
-5. Adjust voice and AI behavior with `/change_speaker` and `/change_system_prompt`.
+- **/set_history_length `<length>`**  
+  Set how many previous messages are used for AI context (1–50).
+
+- **/clear_history**  
+  Clear your personal chat history with the AI.
+
+---
+
+### Master Reset
+
+- **/reset_all**  
+  Reset all AI settings: history, system prompt, VoiceVox config, and speaker.
 
 ---
 

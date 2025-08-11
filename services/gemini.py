@@ -41,21 +41,56 @@ class GeminiService:
         self.print_response_info(response)
         return (getattr(response, "text", "") or "").strip() or "No response."
 
-    async def ask_with_history(
-        self, messages: List[Tuple[str, str]], user_message: str
-    ) -> str:
+    def convert_history_to_gemini_format(self, history: List[dict], user_message: str) -> list:
+        gemini_history = []
+        for msg in history:
+            # Map roles: "assistant" -> "model", ignore any others except "user"
+            if msg["role"] == "user":
+                role = "user"
+            elif msg["role"] in ("assistant", "model"):
+                role = "model"
+            else:
+                continue  # skip any other roles (like "system")
+            gemini_history.append({
+                "role": role,
+                "parts": [{"text": msg["content"]}]
+            })
+        print(f"\n\tgemini_history: {gemini_history}")
+        return gemini_history
+
+
+    async def ask_with_history(self, history: List[dict], user_message: str) -> str:
         """Chat-style generation with a rolling history.
 
-        messages: list of (role, content) where role is "user" or "model".
+        history: list of (role, content) where role is "user" or "model".
         user_message: the latest user message appended to the history.
         """
-        contents: List[dict] = []
+        prompt_history = []
         if self._system_prompt:
-            contents.append({"text": self._system_prompt})
-        for role, content in messages:
-            contents.append({"text": content})
-        contents.append({"text": user_message})
-        response = await asyncio.to_thread(self._model.generate_content, contents)
+            # If there is history and the first message is from the user, prepend system prompt
+            if history and history[0]["role"] == "user":
+                first = history[0]
+                prompt_history.append({
+                    "role": "user",
+                    "content": f"{self._system_prompt}\n{first['content']}"
+                })
+                prompt_history.extend(history[1:])
+            else:
+                # No user history, prepend to current user message
+                prompt_history.append({
+                    "role": "user",
+                    "content": f"{self._system_prompt}\n{user_message}"
+                })
+                user_message = None  # Already included
+        else:
+            prompt_history.extend(history)
+
+        # Add the latest user message if not already included
+        if user_message is not None:
+            prompt_history.append({"role": "user", "content": user_message})
+
+        gemini_history = self.convert_history_to_gemini_format(prompt_history, user_message)
+        response = await asyncio.to_thread(self._model.generate_content, gemini_history)
         self.print_response_info(response)
         return (getattr(response, "text", "") or "").strip() or "No response."
 

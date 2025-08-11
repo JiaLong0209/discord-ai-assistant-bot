@@ -10,6 +10,8 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 from typing import Optional
+from services import voice_config
+from services.voice_config import VoiceVoxConfig
 
 from dotenv import load_dotenv
 
@@ -30,6 +32,8 @@ class Settings:
     system_prompt: Optional[str]
     voicevox_host: str
     voicevox_speaker: int
+    voicevox_config: VoiceVoxConfig
+    latest_n_history: int = 10
 
 
 def get_settings() -> Settings:
@@ -64,12 +68,16 @@ def get_settings() -> Settings:
 
     voicevox_host = os.getenv("VOICEVOX_HOST", "http://127.0.0.1:50021")
     speaker_raw = os.getenv("VOICEVOX_SPEAKER", "1")
+    voicevox_config = VoiceVoxConfig.load("voicevox_config.json")
+
+
     try:
         voicevox_speaker = int(speaker_raw)
     except ValueError:
         voicevox_speaker = 1
     
     use_guild_sync = os.getenv("USE_GUILD_SYNC", "false").lower() == "true"
+    latest_n_history = int(os.getenv("LATEST_N_HISTORY", "10"))
 
     return Settings(
         discord_bot_token=discord_bot_token,
@@ -80,5 +88,7 @@ def get_settings() -> Settings:
         system_prompt=system_prompt,
         voicevox_host=voicevox_host,
         voicevox_speaker=voicevox_speaker,
+        voicevox_config = voicevox_config,
+        latest_n_history=latest_n_history,
     )
 

@@ -41,11 +41,6 @@ async def on_ready() -> None:
     USE_GUILD_SYNC = settings.use_guild_sync 
     DEV_GUILD_ID = settings.default_guild_id  
 
-    current_cmds = await bot.tree.fetch_commands()
-
-    print("All commands:")
-    for cmd in current_cmds:
-        print(f"\t{cmd}")
 
     try:
         if USE_GUILD_SYNC:
@@ -76,6 +71,12 @@ async def on_ready() -> None:
 
     except Exception as sync_error:
         logging.getLogger(__name__).exception("Failed to sync app commands: %s", sync_error)
+
+    current_cmds = await bot.tree.fetch_commands()
+
+    print("All commands:")
+    for cmd in current_cmds:
+        print(f"\t{cmd}")
 
 
 async def load_extensions() -> None:
@@ -111,6 +112,7 @@ async def main() -> None:
     voicevox_service = VoiceVoxService(
         base_url=settings.voicevox_host,
         default_speaker=settings.voicevox_speaker,
+        voicevox_config=settings.voicevox_config
     )
     setattr(bot, "voicevox_service", voicevox_service)
     setattr(bot, "_settings", settings)

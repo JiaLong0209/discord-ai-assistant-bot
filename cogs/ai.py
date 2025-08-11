@@ -15,46 +15,67 @@ from discord.ext import commands
 
 from services.gemini import GeminiService
 from services.voicevox import VoiceVoxService
+from services.voice_config import VoiceVoxConfig, VoiceVoxConfigKey
+from utils.config import Settings
 
 try:
     import edge_tts  # type: ignore
 except Exception:  # pragma: no cover - optional at runtime
     edge_tts = None
 
+AI_MODELS = [
+    ("Gemini 1.5 Flash", "gemini-1.5-flash"),
+    ("Gemini 1.5 Pro", "gemini-1.5-pro"),
+    ("Gemini 2.0 Flash", "gemini-2.0-flash"),
+    ("Gemini 2.0 Pro", "gemini-2.0-pro"),
+    ("Gemma 3 12B", "gemma-3-12b-it"),
+    ("Gemma 3 27B", "gemma-3-27b-it"),
+]
 
 class AICog(commands.Cog):
     """Cog providing AI-related slash commands."""
 
-    def __init__(self, bot: commands.Bot, gemini: GeminiService) -> None:
+    def __init__(self, bot: commands.Bot, gemini: GeminiService, latest_n_history: int = 10) -> None:
         self.bot = bot
         self.gemini = gemini
+        self.latest_n_history = int(os.getenv("LATEST_N_HISTORY", "10"))
         # Simple in-memory chat history mapping user_id to [(role, content), ...]
-        self._history: DefaultDict[int, List[Tuple[str, str]]] = defaultdict(list)
+        # Structure: {guild_id: [history_list]}
+        self._history: DefaultDict[int, List[dict]] = defaultdict(list)
 
-    async def _answer_question(self, user_id: int, question: str) -> str:
+    def get_latest_history(self, user_id: int) -> List[dict]:
+        """Return the latest N messages for a user."""
+        return self._history[user_id][-self.latest_n_history:]
+
+    async def _answer_question(self, interaction: discord.Interaction, question: str) -> str:
         """Generate an answer using short rolling history and store the exchange."""
-        history = self._history[user_id][-6:]
+        guild_id = interaction.guild.id if interaction.guild else 0
+        user_id = interaction.user.id
+        history = self._history[guild_id][-self.latest_n_history:]
         answer = await self.gemini.ask_with_history(history, question)
-        self._history[user_id].append(("user", question))
-        self._history[user_id].append(("model", answer))
+        self._history[guild_id].append({"role": "user", "content": question})
+        self._history[guild_id].append({"role": "assistant", "content": answer})
 
-        print(f"user_id: {user_id}")
-        print(f"all_history: {self._history[user_id]}")
-        print(f"history: {history}")
+        print(f"\n\tuser_id: {user_id}")
+
+        # print(f"\tall_history: {self._history[user_id]}")
+        print(f"\tall_user_history: {self._history}")
+
+        print(f"\tlastest_history: {history}")
 
         return answer
 
     @app_commands.command(name="q", description="Ask any question and get an AI-generated answer.")
     async def ask(self, interaction: discord.Interaction, text: str) -> None:
         await interaction.response.defer(thinking=True)
-        answer = await self._answer_question(interaction.user.id, text)
+        answer = await self._answer_question(interaction, text)
         await self.play_tts(interaction, answer, attach_audio_file=False)
 
 
     @app_commands.command(name="ask", description="Ask any question (alias of /q).")
     async def ask_alias(self, interaction: discord.Interaction, text: str) -> None:
         await interaction.response.defer(thinking=True)
-        answer = await self._answer_question(interaction.user.id, text)
+        answer = await self._answer_question(interaction, text)
         await self.play_tts(interaction, answer, attach_audio_file=False)
 
     @app_commands.command(name="imginfo", description="Upload an image and get an AI description.")
@@ -83,7 +104,7 @@ class AICog(commands.Cog):
     )
     async def voice(self, interaction: discord.Interaction, question: str) -> None:
         await interaction.response.defer(thinking=True)
-        answer = await self._answer_question(interaction.user.id, question)
+        answer = await self._answer_question(interaction, question)
         await self.play_tts(interaction, answer, attach_audio_file=True)
 
     @app_commands.command(
@@ -133,13 +154,106 @@ class AICog(commands.Cog):
 
     @app_commands.command(
         name="change_speaker",
-        description="Change the default VoiceVox speaker id.",
+        description="Change the VoiceVox speaker id.",
     )
     async def change_speaker(self, interaction: discord.Interaction, speaker_id: int) -> None:
-        await interaction.response.defer(thinking=True, ephemeral=True)
+        await interaction.response.defer(thinking=True, ephemeral=False)
         voicevox: VoiceVoxService = getattr(self.bot, "voicevox_service")
         voicevox.default_speaker = speaker_id
         await interaction.followup.send(f"VoiceVox speaker changed to {speaker_id}.")
+
+    @app_commands.command(
+        name="reset_speaker",
+        description="Reset the VoiceVox speaker id to the default.",
+    )
+    async def reset_speaker(self, interaction: discord.Interaction) -> None:
+        await interaction.response.defer(thinking=True, ephemeral=False)
+        voicevox: VoiceVoxService = getattr(self.bot, "voicevox_service")
+        settings = getattr(self.bot, "_settings", None)
+        if settings is not None:
+            voicevox.default_speaker = settings.voicevox_speaker
+            await interaction.followup.send(f"VoiceVox speaker reset to default ({settings.voicevox_speaker}).")
+        else:
+            await interaction.followup.send("Could not reset speaker: default not found.")
+
+
+    @app_commands.command(
+        name="change_speed_scale",
+        description="Change the VoiceVox speak speed",
+    )
+    async def change_speed_scale(self, interaction: discord.Interaction, speed: float) -> None:
+        await interaction.response.defer(thinking=True, ephemeral=False)
+        voicevox: VoiceVoxService = getattr(self.bot, "voicevox_service")
+        voicevox.voicevox_config.set(VoiceVoxConfigKey.SPEED_SCALE, speed)
+        await interaction.followup.send(f"VoiceVox speak speed scale changed to {voicevox.voicevox_config.get(VoiceVoxConfigKey.SPEED_SCALE)}.")
+
+    @app_commands.command(
+        name="change_pitch_scale",
+        description="Change the VoiceVox pitch scale",
+    )
+    async def change_pitch_scale(self, interaction: discord.Interaction, pitch: float) -> None:
+        await interaction.response.defer(thinking=True, ephemeral=False)
+        voicevox: VoiceVoxService = getattr(self.bot, "voicevox_service")
+        voicevox.voicevox_config.set(VoiceVoxConfigKey.PITCH_SCALE, pitch)
+        await interaction.followup.send(
+            f"VoiceVox pitch scale changed to {voicevox.voicevox_config.get(VoiceVoxConfigKey.PITCH_SCALE)}."
+        )
+
+    @app_commands.command(
+        name="change_intonation_scale",
+        description="Change the VoiceVox intonation scale",
+    )
+    async def change_intonation_scale(self, interaction: discord.Interaction, intonation: float) -> None:
+        await interaction.response.defer(thinking=True, ephemeral=False)
+        voicevox: VoiceVoxService = getattr(self.bot, "voicevox_service")
+        voicevox.voicevox_config.set(VoiceVoxConfigKey.INTONATION_SCALE, intonation)
+        await interaction.followup.send(
+            f"VoiceVox intonation scale changed to {voicevox.voicevox_config.get(VoiceVoxConfigKey.INTONATION_SCALE)}."
+        )
+
+    @app_commands.command(
+        name="change_volume_scale",
+        description="Change the VoiceVox volume scale",
+    )
+    async def change_volume_scale(self, interaction: discord.Interaction, volume: float) -> None:
+        await interaction.response.defer(thinking=True, ephemeral=False)
+        voicevox: VoiceVoxService = getattr(self.bot, "voicevox_service")
+        voicevox.voicevox_config.set(VoiceVoxConfigKey.VOLUME_SCALE, volume)
+        await interaction.followup.send(
+            f"VoiceVox volume scale changed to {voicevox.voicevox_config.get(VoiceVoxConfigKey.VOLUME_SCALE)}."
+        )
+
+    @app_commands.command(
+        name="show_config",
+        description="Show the current VoiceVox config",
+    )
+    async def show_config(self, interaction: discord.Interaction) -> None:
+        await interaction.response.defer(thinking=True, ephemeral=True)
+        voicevox: VoiceVoxService = getattr(self.bot, "voicevox_service")
+        config = voicevox.voicevox_config.as_dict()
+        await interaction.followup.send(f"Current VoiceVox config: ```json\n{config}\n```")
+
+    @app_commands.command(
+        name="reset_config",
+        description="Reset the VoiceVox config to defaults",
+    )
+    async def reset_config(self, interaction: discord.Interaction) -> None:
+        await interaction.response.defer(thinking=True, ephemeral=False)
+        voicevox: VoiceVoxService = getattr(self.bot, "voicevox_service")
+        voicevox.voicevox_config.reset()
+        await interaction.followup.send("VoiceVox config has been reset to defaults.")
+
+    @app_commands.command(
+        name="change_pause_length_scale",
+        description="Change the VoiceVox pause length scale",
+    )
+    async def change_pause_length_scale(self, interaction: discord.Interaction, pause_length_scale: float) -> None:
+        await interaction.response.defer(thinking=True, ephemeral=False)
+        voicevox: VoiceVoxService = getattr(self.bot, "voicevox_service")
+        voicevox.voicevox_config.set(VoiceVoxConfigKey.PAUSE_LENGTH_SCALE, pause_length_scale)
+        await interaction.followup.send(
+            f"VoiceVox pause length scale changed to {voicevox.voicevox_config.get(VoiceVoxConfigKey.PAUSE_LENGTH_SCALE)}."
+        )
 
     @app_commands.command(
         name="change_system_prompt",
@@ -151,27 +265,71 @@ class AICog(commands.Cog):
             f"✅ System prompt updated.\nNew prompt:\n```{prompt}```"
         )
 
-    # @app_commands.command(
-    #     name="voice_edge_tts",
-    #     description="Ask a question and receive the answer as spoken audio.",
-    # )
-    # async def voice_edge_tts(self, interaction: discord.Interaction, question: str) -> None:
-    #     await interaction.response.defer(thinking=True)
-    #     answer = await self._answer_question(interaction.user.id, question)
+    @app_commands.command(
+        name="change_gemini_model",
+        description="Change the Gemini AI model used by the bot.",
+    )
+    @app_commands.describe(model="Select the Gemini model")
+    @app_commands.choices(
+        model=[ app_commands.Choice(name=label, value=value) for label, value in AI_MODELS ]
+    )
+    async def change_gemini_model(self, interaction: discord.Interaction, model: app_commands.Choice[str]) -> None:
+        await interaction.response.defer(thinking=True, ephemeral=False)
+        gemini: GeminiService = getattr(self.bot, "gemini_service")
+        gemini.model_text = model.value
+        await interaction.followup.send(f"Gemini model changed to `{model.value}`.")
 
-    #     if edge_tts is None:
-    #         await interaction.followup.send(
-    #             "Text-to-speech engine is not available. Install edge-tts to enable this command."
-    #         )
-    #         return
+    @app_commands.command(
+        name="set_history_length",
+        description="Set how many previous messages are used for context."
+    )
+    @app_commands.describe(length="Number of messages to keep in context")
+    async def set_history_length(self, interaction: discord.Interaction, length: int) -> None:
+        if length < 1 or length > 50:
+            await interaction.response.send_message("Please choose a value between 1 and 50.", ephemeral=True)
+            return
+        self.latest_n_history = length
+        await interaction.response.send_message(f"History context length set to {length}.", ephemeral=True)
 
-    #     # Generate TTS audio using Edge TTS and send as attachment
-    #     communicate = edge_tts.Communicate(answer, voice="en-US-JennyNeural")
-    #     with tempfile.NamedTemporaryFile(suffix=".mp3", delete=True) as tmp:
-    #         await communicate.save(tmp.name)
-    #         tmp.seek(0)
-    #         file = discord.File(tmp.name, filename="response.mp3")
-    #         await interaction.followup.send(content=answer[:self.gemini.max_len], file=file)
+    @app_commands.command(
+        name="clear_history",
+        description="Clear your chat history with the AI."
+    )
+    async def clear_history(self, interaction: discord.Interaction) -> None:
+        user_id = interaction.user.id
+        self._history[interaction.guild.id].clear()
+        await interaction.response.send_message("Your chat history has been cleared.", ephemeral=True)
+
+    @app_commands.command(
+        name="reset_system_prompt",
+        description="Reset the system prompt for Gemini to the default."
+    )
+    async def reset_system_prompt(self, interaction: discord.Interaction) -> None:
+        from utils.config import get_settings
+        default_prompt = get_settings().system_prompt
+        self.gemini._system_prompt = default_prompt
+        await interaction.response.send_message(
+            "System prompt has been reset to the default.", ephemeral=True
+        )
+
+    @app_commands.command(
+        name="reset_all",
+        description="Reset all AI settings: history, system prompt, and VoiceVox config."
+    )
+    async def reset_all(self, interaction: discord.Interaction) -> None:
+        user_id = interaction.user.id
+        self._history[interaction.guild.id].clear()
+        from utils.config import get_settings
+        default_prompt = get_settings().system_prompt
+        self.gemini._system_prompt = default_prompt
+        voicevox: VoiceVoxService = getattr(self.bot, "voicevox_service")
+        voicevox.voicevox_config.reset()
+        settings = getattr(self.bot, "_settings", None)
+        if settings is not None:
+            voicevox.default_speaker = settings.voicevox_speaker
+        await interaction.response.send_message(
+            "All AI settings have been reset: chat history, system prompt, VoiceVox config, and speaker.", ephemeral=True
+        )
 
 
     async def play_tts(self,interaction: discord.Interaction, answer: str, attach_audio_file: bool = True): 

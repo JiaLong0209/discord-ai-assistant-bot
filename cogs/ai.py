@@ -23,14 +23,6 @@ try:
 except Exception:  # pragma: no cover - optional at runtime
     edge_tts = None
 
-AI_MODELS = [
-    ("Gemini 1.5 Flash", "gemini-1.5-flash"),
-    ("Gemini 1.5 Pro", "gemini-1.5-pro"),
-    ("Gemini 2.0 Flash", "gemini-2.0-flash"),
-    ("Gemini 2.0 Pro", "gemini-2.0-pro"),
-    ("Gemma 3 12B", "gemma-3-12b-it"),
-    ("Gemma 3 27B", "gemma-3-27b-it"),
-]
 
 class AICog(commands.Cog):
     """Cog providing AI-related slash commands."""
@@ -270,9 +262,7 @@ class AICog(commands.Cog):
         description="Change the Gemini AI model used by the bot.",
     )
     @app_commands.describe(model="Select the Gemini model")
-    @app_commands.choices(
-        model=[ app_commands.Choice(name=label, value=value) for label, value in AI_MODELS ]
-    )
+    @app_commands.choices( model=[ app_commands.Choice(name=label, value=value) for label, value in  GeminiService.list_available_models()])
     async def change_gemini_model(self, interaction: discord.Interaction, model: app_commands.Choice[str]) -> None:
         await interaction.response.defer(thinking=True, ephemeral=False)
         gemini: GeminiService = getattr(self.bot, "gemini_service")

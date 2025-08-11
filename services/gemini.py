@@ -128,3 +128,28 @@ class GeminiService:
             print(f"Safety rating: {response.prompt_feedback}")
 
 
+    @staticmethod
+    def list_available_models(only_gemini: bool = True) -> List[Tuple[str, str]]:
+        """
+        Fetch all available models from the Google Generative AI API.
+        Returns a list of (label, id) tuples.
+        """
+        models = []
+        for model in genai.list_models():
+            # We only want models that can generate text
+            if "generateContent" not in model.supported_generation_methods:
+                continue
+            model_id = model.name.split("/")[-1]
+            # If filtering only for Gemini/Gemma
+            if only_gemini and not (model_id.startswith("gemini") or model_id.startswith("gemma")):
+                continue
+            # Create a human-friendly label
+            label = (
+                model_id.replace("-", " ")
+                .title()
+                .replace("Gemini", "Gemini")
+                .replace("Gemma", "Gemma")
+            )
+            models.append((label, model_id))
+        print(models)
+        return models[:25]

@@ -1,0 +1,12 @@
+{
+  "speedScale": 1.0,
+  "pitchScale": 0,
+  "intonationScale": 1.0,
+  "volumeScale": 1.5,
+  "prePhonemeLength": 0.1,
+  "postPhonemeLength": 0.1,
+  "pauseLength": null,
+  "pauseLengthScale": 1,
+  "outputSamplingRate": 44100,
+  "outputStereo": true
+}

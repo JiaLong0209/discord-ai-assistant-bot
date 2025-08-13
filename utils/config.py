@@ -16,8 +16,8 @@ from services.voice_config import VoiceVoxConfig
 from dotenv import load_dotenv
 
 
-# Load variables from a local .env file if present.
-load_dotenv()
+env_file = os.getenv("ENV_FILE", ".env")
+load_dotenv(dotenv_path=env_file)
 
 
 @dataclass(frozen=True)
@@ -59,9 +59,13 @@ def get_settings() -> Settings:
     default_guild_id = int(guild_raw) if guild_raw and guild_raw.isdigit() else None
 
     gemini_model = os.getenv("GEMINI_MODEL")
-    # Read system prompt from sys_prompt.txt file
+
+    system_prompt_dir = os.getenv("SYSTEM_PROMPT_DIR")
+    system_prompt_filename = os.getenv("SYSTEM_PROMPT_FILENAME")
+    system_prompt_path = os.path.join(system_prompt_dir, system_prompt_filename)
+    
     try:
-        with open("sys_prompt.txt", "r", encoding="utf-8") as f:
+        with open(system_prompt_path, "r", encoding="utf-8") as f:
             system_prompt = f.read().strip()
     except Exception:
         system_prompt = None

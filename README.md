@@ -89,6 +89,12 @@ Ask a question and get the answer spoken aloud using VoiceVox TTS audio.
 - **/clear_history**  
   Clear your personal chat history with the AI.
 
+- **/toggle_mention**  
+  Toggle whether the AI mentions the user in its replies.
+
+- **/toggle_listen**  
+  Toggle whether the AI listens to all messages or only messages that mention the bot.
+
 ---
 
 ### Master Reset

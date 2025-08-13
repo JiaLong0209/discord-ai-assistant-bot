@@ -13,6 +13,7 @@ from services.voice_config import VoiceVoxConfig
 
 import aiohttp
 
+import re
 
 class VoiceVoxService:
     def __init__(
@@ -23,16 +24,20 @@ class VoiceVoxService:
     ) -> None:
         self.base_url = base_url.rstrip("/")
         self.default_speaker = default_speaker
-        self.voicevox_config = voicevox_config or VoiceVoxConfig()  # Use default if not provided
+        self.voicevox_config = voicevox_config or VoiceVoxConfig()
 
     async def synthesize(self, text: str, speaker: Optional[int] = None) -> bytes:
         """Synthesize speech for the given text and return WAV bytes."""
+
+        # Remove anything inside parentheses (including the parentheses)
+        cleaned_text = re.sub(r"\([^)]*\)", "", text).strip()
+
         speaker_id = speaker if speaker is not None else self.default_speaker
         async with aiohttp.ClientSession() as session:
             # Step 1: audio_query
             params = {
                 "speaker": str(speaker_id),
-                "text": text,
+                "text": cleaned_text,
             }
             async with session.post(f"{self.base_url}/audio_query", params=params) as resp:
                 resp.raise_for_status()
@@ -50,6 +55,4 @@ class VoiceVoxService:
                 json=query,
             ) as resp2:
                 resp2.raise_for_status()
-                audio_bytes = await resp2.read()
-                return audio_bytes
-
+                return await resp2.read()

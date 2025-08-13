@@ -20,18 +20,24 @@ from services.voicevox import VoiceVoxService
 
 
 def configure_logging() -> None:
-    """Configure application-wide logging format and level."""
     logging.basicConfig(
         level=logging.INFO,
-        format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
+        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+        handlers=[
+            logging.FileHandler("logs/bot.log", encoding="utf-8"),
+            logging.StreamHandler()
+        ]
     )
+
 
 
 intents = discord.Intents.default()
 intents.message_content = True  # Required for some message-based features
 
 # Use mention or a non-slash prefix for legacy text commands (we primarily use slash commands)
-bot = commands.Bot(command_prefix=commands.when_mentioned_or("!"), intents=intents)
+# bot = commands.Bot(command_prefix=commands.when_mentioned_or("!"), intents=intents)
+bot = commands.Bot(command_prefix="!", intents=intents)
 
 
 @bot.event

@@ -80,8 +80,7 @@ Ask a question and get the answer spoken aloud using VoiceVox TTS audio.
   Change the Gemini AI model used by the bot.
 
 ---
-
-### Chat History Controls
+### Conversation Controls
 
 - **/set_history_length `<length>`**  
   Set how many previous messages are used for AI context (1–50).
@@ -94,6 +93,16 @@ Ask a question and get the answer spoken aloud using VoiceVox TTS audio.
 
 - **/toggle_listen**  
   Toggle whether the AI listens to all messages or only messages that mention the bot.
+
+---
+
+### Backup Controls
+
+- **/toggle_backup_audio**  
+  Toggle whether to save audio responses for backup.
+
+- **/toggle_backup_text**  
+  Toggle whether to save text responses for backup.
 
 ---
 

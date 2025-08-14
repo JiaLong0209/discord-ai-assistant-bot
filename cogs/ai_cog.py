@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 import io
 import tempfile
 from typing import Optional, DefaultDict, List, Tuple, Union
@@ -16,82 +17,30 @@ from discord.ext import commands
 from services.gemini import GeminiService
 from services.voicevox import VoiceVoxService
 from services.voice_config import VoiceVoxConfig, VoiceVoxConfigKey
-from utils.config import Settings
+from services.ai_responder import AIResponder
+from services.chat_history import ChatHistoryManager
+from services.backup_service import BackupService
+
 from utils.config import get_settings
+
 
 import logging
 import asyncio
+import re
 
 logger = logging.getLogger(__name__)
 
-class ChatHistoryManager:
-    def __init__(self, latest_n: int = 10):
-        self.latest_n = latest_n
-        self._history: DefaultDict[int, List[dict]] = defaultdict(list)
-
-    def add_user_message(self, guild_id: int, user_name: str, content: str):
-        self._history[guild_id].append({"role": "user", "content": f"{user_name}: {content}"})
-        if len(self._history[guild_id]) > self.latest_n * 2:
-            self._history[guild_id] = self._history[guild_id][-self.latest_n*2:]
-        # logging.info(f"\n(add_user_message) all history: {self._history}")
-
-    def add_assistant_message(self, guild_id: int, content: str):
-        self._history[guild_id].append({"role": "assistant", "content": content})
-        if len(self._history[guild_id]) > self.latest_n * 2:
-            self._history[guild_id] = self._history[guild_id][-self.latest_n*2:]
-
-    def get_latest_history(self, guild_id: int) -> List[dict]:
-        logger.info(f"Lastest history: {self._history[guild_id][-self.latest_n*2:]}")
-        return self._history[guild_id][-self.latest_n*2:]  # user + assistant
-
-
-class AIResponder:
-    def __init__(self, gemini: GeminiService, history_manager: ChatHistoryManager):
-        self.gemini = gemini
-        self.history_manager = history_manager
-
-    def _log_interaction(self, guild_name: str, user_name: str, question: str, answer: str = "" , is_image: bool = False):
-        prefix = "(image) " if is_image else ""
-        logger.info(f"\n[{guild_name}] {user_name} -> {prefix}{question}\nAI: {answer}...")
-
-    async def get_answer(self, source: Union[discord.Message, discord.Interaction], question: str) -> str:
-        guild_name = source.guild.name if source.guild else "DM"
-        guild_id = source.guild.id if source.guild else 0
-        user_name = source.author.display_name if isinstance(source, discord.Message) else source.user.display_name
-
-        history = self.history_manager.get_latest_history(guild_id)
-
-        # Handle images
-        attachments = source.attachments if isinstance(source, discord.Message) else []
-        if attachments:
-            for attachment in attachments:
-                if attachment.content_type and attachment.content_type.startswith("image/"):
-                    image_bytes = await attachment.read()
-                    history_text = "\n".join(f"{h['role']}: {h['content']}" for h in history)
-                    combined_prompt = f"{history_text}\n{user_name}: {question}"
-
-                    self.history_manager.add_user_message(guild_id, user_name, f"[sent image] {question}")
-                    answer = await self.gemini.describe_image(image_bytes, mime_type=attachment.content_type, text=combined_prompt)
-                    self.history_manager.add_assistant_message(guild_id, answer)
-
-                    self._log_interaction(guild_name, user_name, question, answer, is_image=True)
-                    return answer
-
-        # Text handling
-        self.history_manager.add_user_message(guild_id, user_name, question)
-        answer = await self.gemini.ask_with_history(history, f"{user_name}: {question}")
-        self.history_manager.add_assistant_message(guild_id, answer)
-
-        self._log_interaction(guild_name, user_name, question, answer)
-        return answer
-
-
 class AICog(commands.Cog):
-    def __init__(self, bot: commands.Bot, responder: AIResponder):
+    def __init__(self, bot: commands.Bot, responder: AIResponder, backup_service: BackupService):
         self.bot = bot
         self.responder = responder
-        self.listen_all_messages = False  # Switch: listen to all or only mentions
-        self.mention_user = True
+        self.backup_service = backup_service
+
+        # settings
+        self.listen_all_messages = False  
+        self.mention_user = True  
+        self.backup_audio = True
+        self.backup_text = True
 
     def _make_fake_interaction(self, message: discord.Message):
         class FakeFollowup:
@@ -106,8 +55,7 @@ class AICog(commands.Cog):
 
         return FakeInteraction(message)
     
-
-    async def play_tts(
+    async def send_tts_response(
         self,
         interaction: discord.Interaction,
         answer: str,
@@ -117,9 +65,18 @@ class AICog(commands.Cog):
         voicevox: VoiceVoxService = getattr(self.bot, "voicevox_service")
         wav_bytes = await voicevox.synthesize(answer)
 
+        speaker_id = voicevox.default_speaker
+        guild_id = interaction.guild.id if interaction.guild else 0  
+
         # Optionally prepend mention
         if mention_user:
             answer = f"<@{interaction.user.id}> {answer}"
+        
+        if self.backup_audio:
+            self.backup_service.backup_audio(wav_bytes, speaker_id, guild_id)
+        
+        if self.backup_text:
+            self.backup_service.backup_text(answer, speaker_id, guild_id)
 
         # Save TTS to a temporary file
         with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
@@ -156,7 +113,7 @@ class AICog(commands.Cog):
         user_name = message.author.display_name
         self.responder.history_manager.add_user_message(guild_id, user_name, message.content)
 
-        self.responder._log_interaction(guild_name, user_name, message.content)
+        self.responder._log_interaction(message, message.content)
 
         # 自分のメッセージには返信しない
         if message.author.id == self.bot.user.id:
@@ -175,32 +132,43 @@ class AICog(commands.Cog):
         answer = await self.responder.get_answer(message, question)
 
         fake_interaction = self._make_fake_interaction(message)
-        await self.play_tts(fake_interaction, answer, attach_audio_file=False, mention_user=self.mention_user)
+        await self.send_tts_response(fake_interaction, answer, attach_audio_file=False, mention_user=self.mention_user)
 
     @app_commands.command(name="toggle_mention", description="Toggle whether AI mentions the user in its replies.")
     async def toggle_mention(self, interaction: discord.Interaction):
         self.mention_user = not self.mention_user
         status = "mention users" if self.mention_user else "not mention users"
-        await interaction.response.send_message(f"🔄 AI will now **{status}** in replies.")
+        await interaction.response.send_message(f"AI will now **{status}** in replies.")
 
     @app_commands.command(name="toggle_listen", description="Toggle AI to listen to all messages or only mentions.")
     async def toggle_listen(self, interaction: discord.Interaction):
         self.listen_all_messages = not self.listen_all_messages
         status = "all messages" if self.listen_all_messages else "only mentions"
-        await interaction.response.send_message(f"🔄 AI will now listen to **{status}**.")
+        await interaction.response.send_message(f"AI will now listen to **{status}**.")
 
+    @app_commands.command(name="toggle_backup_audio", description="Toggle whether AI saves generated audio files. ")
+    async def toggle_backup_audio(self, interaction: discord.Interaction):
+        self.backup_audio = not self.backup_audio
+        status = "enabled" if self.backup_audio else "disabled"
+        await interaction.response.send_message(f"Audio backup is now **{status}**.")
+
+    @app_commands.command(name="toggle_backup_text", description="Toggle whether AI saves generated text files.")
+    async def toggle_backup_text(self, interaction: discord.Interaction):
+        self.backup_text = not self.backup_text
+        status = "enabled" if self.backup_text else "disabled"
+        await interaction.response.send_message(f"Text backup is now **{status}**.")
 
     @app_commands.command(name="q", description="Ask any question and get an AI-generated answer.")
     async def ask(self, interaction: discord.Interaction, text: str) -> None:
         await interaction.response.defer(thinking=True)
         answer = await self.responder.get_answer(interaction, text)
-        await self.play_tts(interaction, answer, attach_audio_file=False, mention_user=self.mention_user)
+        await self.send_tts_response(interaction, answer, attach_audio_file=False, mention_user=self.mention_user)
 
     @app_commands.command(name="ask", description="Ask any question (alias of /q).")
     async def ask_alias(self, interaction: discord.Interaction, text: str) -> None:
         await interaction.response.defer(thinking=True)
         answer = await self.responder.get_answer(interaction, text)
-        await self.play_tts(interaction, answer, attach_audio_file=False, mention_user=self.mention_user)
+        await self.send_tts_response(interaction, answer, attach_audio_file=False, mention_user=self.mention_user)
 
 
     @app_commands.command(
@@ -210,7 +178,7 @@ class AICog(commands.Cog):
     async def voice(self, interaction: discord.Interaction, text: str) -> None:
         await interaction.response.defer(thinking=True)
         answer = await self.responder.get_answer(interaction, text)
-        await self.play_tts(interaction, answer, attach_audio_file=True, mention_user=self.mention_user)
+        await self.send_tts_response(interaction, answer, attach_audio_file=True, mention_user=self.mention_user)
 
 
     @app_commands.command(
@@ -224,7 +192,7 @@ class AICog(commands.Cog):
             return
         image_bytes = await image.read()
         answer = await self.responder.gemini.describe_image(image_bytes, mime_type=image.content_type, text=text)
-        await self.play_tts(interaction, answer[:self.responder.gemini.max_len], attach_audio_file=False, mention_user=self.mention_user)
+        await self.send_tts_response(interaction, answer[:self.responder.gemini.max_len], attach_audio_file=False, mention_user=self.mention_user)
 
     @app_commands.command(
         name="fix_grammar",
@@ -233,7 +201,7 @@ class AICog(commands.Cog):
     async def fix_grammar(self, interaction: discord.Interaction, text: str) -> None:
         await interaction.response.defer(thinking=True)
         answer = await self.responder.gemini.fix_grammar(text)
-        await self.play_tts(interaction, answer[:self.responder.gemini.max_len], attach_audio_file=False, mention_user=self.mention_user)
+        await self.send_tts_response(interaction, answer[:self.responder.gemini.max_len], attach_audio_file=False, mention_user=self.mention_user)
 
     @app_commands.command(
         name="voice_channel_join",
@@ -457,6 +425,9 @@ class AICog(commands.Cog):
         if settings is not None:
             voicevox.default_speaker = settings.voicevox_speaker
 
+        self.mention_user = True
+        self.listen_all_messages = False
+
         await interaction.response.send_message(
             "All AI settings have been reset: chat history, system prompt, VoiceVox config, and speaker.", ephemeral=False
         )
@@ -469,7 +440,15 @@ async def setup(bot: commands.Bot) -> None:
         raise RuntimeError("GeminiService is not configured on the bot.")
 
     latest_n_history = get_settings().latest_n_history
-    history_manager = ChatHistoryManager(latest_n=latest_n_history)
-    ai_responder = AIResponder(gemini, history_manager)
+    backup_dir = get_settings().backup_dir
 
-    await bot.add_cog(AICog(bot, ai_responder))
+
+    history_manager = ChatHistoryManager(latest_n=latest_n_history)
+    ai_responder = AIResponder(gemini, history_manager, bot=bot)
+    backup_service = BackupService(backup_dir)
+
+    await bot.add_cog(AICog(
+        bot=bot, 
+        responder=ai_responder,
+        backup_service=backup_service
+    ))

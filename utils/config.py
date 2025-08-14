@@ -34,6 +34,7 @@ class Settings:
     voicevox_speaker: int
     voicevox_config: VoiceVoxConfig
     latest_n_history: int = 10
+    backup_dir: str = "storage/backup"
 
 
 def get_settings() -> Settings:
@@ -82,6 +83,8 @@ def get_settings() -> Settings:
     
     use_guild_sync = os.getenv("USE_GUILD_SYNC", "false").lower() == "true"
     latest_n_history = int(os.getenv("LATEST_N_HISTORY", "10"))
+    backup_dir =  os.getenv("BACKUP_DIR", "storage/backup")
+
 
     return Settings(
         discord_bot_token=discord_bot_token,
@@ -94,5 +97,6 @@ def get_settings() -> Settings:
         voicevox_speaker=voicevox_speaker,
         voicevox_config = voicevox_config,
         latest_n_history=latest_n_history,
+        backup_dir=backup_dir,
     )
 

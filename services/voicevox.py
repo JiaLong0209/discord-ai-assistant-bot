@@ -10,6 +10,7 @@ from __future__ import annotations
 import io
 from typing import Optional
 from services.voice_config import VoiceVoxConfig  
+from utils.text import extract_japanese_text
 
 import aiohttp
 
@@ -29,8 +30,7 @@ class VoiceVoxService:
     async def synthesize(self, text: str, speaker: Optional[int] = None) -> bytes:
         """Synthesize speech for the given text and return WAV bytes."""
 
-        # Remove anything inside parentheses (including the parentheses)
-        cleaned_text = re.sub(r"\([^)]*\)", "", text).strip()
+        cleaned_text = extract_japanese_text(text)
 
         speaker_id = speaker if speaker is not None else self.default_speaker
         async with aiohttp.ClientSession() as session:

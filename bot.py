@@ -18,7 +18,6 @@ from utils.config import get_settings
 from services.gemini import GeminiService
 from services.voicevox import VoiceVoxService
 
-
 def configure_logging() -> None:
     logging.basicConfig(
         level=logging.INFO,
@@ -30,15 +29,11 @@ def configure_logging() -> None:
         ]
     )
 
-
-
 intents = discord.Intents.default()
 intents.message_content = True  # Required for some message-based features
 
 # Use mention or a non-slash prefix for legacy text commands (we primarily use slash commands)
-# bot = commands.Bot(command_prefix=commands.when_mentioned_or("!"), intents=intents)
 bot = commands.Bot(command_prefix="!", intents=intents)
-
 
 @bot.event
 async def on_ready() -> None:
@@ -46,7 +41,6 @@ async def on_ready() -> None:
     settings = getattr(bot, "_settings", None)
     USE_GUILD_SYNC = settings.use_guild_sync 
     DEV_GUILD_ID = settings.default_guild_id  
-
 
     try:
         if USE_GUILD_SYNC:
@@ -84,6 +78,11 @@ async def on_ready() -> None:
     for cmd in current_cmds:
         print(f"\t{cmd}")
 
+@bot.command()
+async def reload(ctx: commands.Context, extension: str):
+    await bot.reload_extension(f"cogs.{extension}")
+    logging.info(f"ReLoaded {extension} done.")
+    await ctx.send(f"ReLoaded {extension} done.", ephemeral=True)
 
 async def load_extensions() -> None:
     """Load all cogs from the cogs directory."""
@@ -100,7 +99,6 @@ async def load_extensions() -> None:
             logger.info("Loaded extension: %s", ext_name)
         except Exception as exc:
             logger.exception("Failed to load extension %s: %s", ext_name, exc)
-
 
 async def main() -> None:
     configure_logging()
@@ -127,10 +125,5 @@ async def main() -> None:
         await load_extensions()
         await bot.start(settings.discord_bot_token)
 
-
 if __name__ == "__main__":
     asyncio.run(main())
-
-
-
-

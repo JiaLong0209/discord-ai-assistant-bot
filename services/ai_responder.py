@@ -8,8 +8,13 @@ from typing import Union
 from utils.text import remove_time_tag
 from .chat_history import ChatHistoryManager
 from .gemini import GeminiService
+from .message_preprocessor import MessagePreprocessor
 
 logger = logging.getLogger(__name__)
+
+class AttachmentHandler:
+    """Handles extraction of relevant attachments (images, etc.)"""
+
 
 class AIResponder:
     def __init__(self, gemini: GeminiService, history_manager: ChatHistoryManager, bot: discord.Client):
@@ -17,81 +22,63 @@ class AIResponder:
         self.history_manager = history_manager
         self.bot = bot
 
-    def _log_interaction(self, source: Union[discord.Message, discord.Interaction], question: str, answer: str = "", is_image: bool = False):
+    def _log_interaction(self, source, question, answer="", is_image=False):
         guild_name = source.guild.name if source.guild else "DM"
         user_name = source.author.display_name if isinstance(source, discord.Message) else source.user.display_name
         channel_name = source.channel.name if hasattr(source.channel, "name") else "DM"
         prefix = "(image) " if is_image else ""
-        logger.info(f"\n\n--------------------\n \
-            [{guild_name}] [{channel_name}] [{self.history_manager._current_time()}] \n{user_name}: {prefix}{question}\nAI: {answer}")
+        logger.info(
+            f"\n\n--------------------\n"
+            f"[{guild_name}] [{channel_name}] [{self.history_manager._current_time()}] \n"
+            f"{user_name}: {prefix}{question}\nAI: {answer}"
+        )
 
-    def format_message_with_reply(self, message: discord.Message) -> str:
-        """Format message content, including reply context if present."""
-        content = message.content or ""
-
-        # もし返信があれば追加情報をつける
-        if message.reference and message.reference.resolved:
-            replied_msg: discord.Message = message.reference.resolved
-            replied_author = replied_msg.author.display_name
-            replied_content = replied_msg.content or ""
-
-            # Handle image references in the replied message
-            image_refs = []
-            for attach in replied_msg.attachments:
-                if attach.content_type and attach.content_type.startswith("image/"):
-                    image_refs.append(f"[Image: {attach.url}]")
-
-            if image_refs:
-                replied_content = f"{replied_content} {' '.join(image_refs)}".strip()
-
-            # 返信部分を先頭に追加
-            content = f"[reply: {replied_author}: {replied_content}] {content}"
-
-        return content.strip()
-
-
-    def _replace_mentions_with_names(self, message: discord.Message, content: str) -> str:
-        mention_map = {m.id: m.display_name for m in message.mentions}
-
-        def repl(match):
-            user_id = int(match.group(1))
-            user_name = mention_map.get(user_id)
-            return f"@{user_name}" if user_name else f"<@{user_id}>"
-
-        return re.sub(r"<@&?(\d+)>", repl, content)
-
-    def normalize_question_text(self, message: discord.Message):
-        question = self.format_message_with_reply(message)
-        question = self._replace_mentions_with_names(message, question)
-
-
-        return question
-
-    async def get_answer(self, source: Union[discord.Message, discord.Interaction], question: str, add_to_history: bool = True) -> str:
+    async def get_answer(self, source: Union[discord.Message, discord.Interaction], add_to_history: bool = True) -> str:
         guild_id = source.guild.id if source.guild else 0
         user_name = source.author.display_name if isinstance(source, discord.Message) else source.user.display_name
+        bot_name = self.bot.user.name
+
+        # Preprocess text
+        if isinstance(source, discord.Message):
+            question = MessagePreprocessor.normalize(source)
+        else:
+            question = source.data.get("content", "")
 
         history = self.history_manager.get_latest_history(guild_id)
-        bot_name = self.bot.user.name
-        
 
-        attachments = source.attachments if isinstance(source, discord.Message) else []
-        if attachments:
-            for attachment in attachments:
-                if attachment.content_type and attachment.content_type.startswith("image/"):
-                    
-                    image_bytes = await attachment.read()
-                    history_text = "\n".join(f"{h['role']}: {h['content']}" for h in history)
-                    combined_prompt = f"{history_text}\n{user_name}: {question}"
-                    answer = await self.gemini.describe_image(image_bytes, mime_type=attachment.content_type, text=combined_prompt)
-                    answer = remove_time_tag(answer)
+        # Check for images (own + reply)
+        if isinstance(source, discord.Message):
+            images = MessagePreprocessor.collect_images(source)
+        else:
+            images = []
 
-                    self.history_manager.add_user_message(guild_id, user_name, f"[sent image] {question}")
-                    self.history_manager.add_assistant_message(guild_id, bot_name, answer)
+        if images:
+            # → Step1: describe each image
+            descriptions = []
+            logger.info(f"Total images: {len(images)}")
+            for i, image in  enumerate(images):
+                image_bytes = await image.read()
+                desc = await self.gemini.describe_image(
+                    image_bytes, mime_type=image.content_type
+                )
+                logger.info(f"Image ({i+1}) description: {desc}")
+                desc = remove_time_tag(desc)
+                descriptions.append(desc)
 
-                    self._log_interaction(source, question, answer, is_image=True)
-                    return answer
+            # → Step2: combine description into new prompt
+            image_context = " ".join(f"[Image ({i+1}) description: {d}]" for i, d in enumerate(descriptions))
+            combined_prompt = f"{image_context}\n{user_name}: {question}"
+            logging.info(f"combined_prompt: {combined_prompt}")
+            answer = await self.gemini.ask_with_history(history, combined_prompt)
 
+            if add_to_history:
+                self.history_manager.add_user_message(guild_id, user_name, f"[sent image] {question}")
+                self.history_manager.add_assistant_message(guild_id, bot_name, answer)
+
+            self._log_interaction(source, question, answer, is_image=True)
+            return answer
+
+        # Normal text
         answer = await self.gemini.ask_with_history(history, f"{user_name}: {question}")
         answer = remove_time_tag(answer)
 
@@ -101,4 +88,3 @@ class AIResponder:
 
         self._log_interaction(source, question, answer)
         return answer
-

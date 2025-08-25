@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from datetime import datetime
 import io
+from pickle import MEMOIZE
 import tempfile
 from typing import Optional, DefaultDict, List, Tuple, Union
 from collections import defaultdict
@@ -20,6 +21,7 @@ from services.voice_config import VoiceVoxConfig, VoiceVoxConfigKey
 from services.ai_responder import AIResponder
 from services.chat_history import ChatHistoryManager
 from services.backup_service import BackupService
+from services.message_preprocessor import MessagePreprocessor
 
 from utils.config import get_settings
 
@@ -112,9 +114,8 @@ class AICog(commands.Cog):
         guild_name = message.guild.name if message.guild else "DM"
         user_name = message.author.display_name
 
-        question = self.responder.normalize_question_text(message=message)
+        question = MessagePreprocessor.normalize(message=message)
         self.responder.history_manager.add_user_message(guild_id, user_name, question)
-
         self.responder._log_interaction(message, question)
 
         # 自分のメッセージには返信しない

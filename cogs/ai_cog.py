@@ -54,7 +54,7 @@ class AICog(commands.Cog):
                 self.followup = FakeFollowup()
 
         return FakeInteraction(message)
-    
+
     async def send_tts_response(
         self,
         interaction: discord.Interaction,
@@ -111,9 +111,11 @@ class AICog(commands.Cog):
         guild_id = message.guild.id if message.guild else 0
         guild_name = message.guild.name if message.guild else "DM"
         user_name = message.author.display_name
-        self.responder.history_manager.add_user_message(guild_id, user_name, message.content)
 
-        self.responder._log_interaction(message, message.content)
+        question = self.responder.normalize_question_text(message=message)
+        self.responder.history_manager.add_user_message(guild_id, user_name, question)
+
+        self.responder._log_interaction(message, question)
 
         # 自分のメッセージには返信しない
         if message.author.id == self.bot.user.id:
@@ -127,8 +129,7 @@ class AICog(commands.Cog):
         if not (self.listen_all_messages or self.bot.user in message.mentions):
             return
 
-        # メンション部分を除去して質問文を整形
-        question = message.content.replace(f"<@{self.bot.user.id}>", "").strip() or "(Empty string)"
+        # question = message.content.replace(f"<@{self.bot.user.id}>", "").strip() or "(Empty string)"
         answer = await self.responder.get_answer(message, question)
 
         fake_interaction = self._make_fake_interaction(message)
@@ -238,7 +239,7 @@ class AICog(commands.Cog):
         description="Disconnect the bot from the current voice channel.",
     )
     async def voice_channel_exit(self, interaction: discord.Interaction) -> None:
-        await interaction.response.defer(thinking=True, ephemeral=True)
+        await interaction.response.defer(thinking=True, ephemeral=False)
         voice_client: Optional[discord.VoiceClient] = discord.utils.get(
             self.bot.voice_clients, guild=interaction.guild
         )
@@ -431,7 +432,19 @@ class AICog(commands.Cog):
         await interaction.response.send_message(
             "All AI settings have been reset: chat history, system prompt, VoiceVox config, and speaker.", ephemeral=False
         )
-    
+
+    # @commands.command()
+    # @commands.is_owner() # Optional: Restrict this command to the bot owner
+    # async def reload(self, ctx: commands.Context, cog_name: str):
+    #     try:
+    #         await self.bot.reload_extension(f"cogs.{cog_name}") # Assuming cogs are in a 'cogs' folder
+    #         await ctx.send(f"Cog '{cog_name}' reloaded successfully.")
+    #     except commands.ExtensionNotFound:
+    #         await ctx.send(f"Cog '{cog_name}' not found.")
+    #     except commands.ExtensionFailed as e:
+    #         await ctx.send(f"Error reloading cog '{cog_name}': {e}")
+    #     except Exception as e:
+    #         await ctx.send(f"An unexpected error occurred: {e}")
 
 
 async def setup(bot: commands.Bot) -> None:
@@ -446,6 +459,7 @@ async def setup(bot: commands.Bot) -> None:
     history_manager = ChatHistoryManager(latest_n=latest_n_history)
     ai_responder = AIResponder(gemini, history_manager, bot=bot)
     backup_service = BackupService(backup_dir)
+
 
     await bot.add_cog(AICog(
         bot=bot, 

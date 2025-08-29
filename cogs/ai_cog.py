@@ -115,12 +115,13 @@ class AICog(commands.Cog):
         user_name = message.author.display_name
 
         question = MessagePreprocessor.normalize(message=message)
-        self.responder.history_manager.add_user_message(guild_id, user_name, question)
         self.responder._log_interaction(message, question)
 
         # 自分のメッセージには返信しない
         if message.author.id == self.bot.user.id:
             return
+
+        self.responder.history_manager.add_user_message(guild_id, user_name, question)
 
         # 他botのメッセージは返信しない（ただし listen_all_messages が True の場合は返信する）
         if message.author.bot and not self.listen_all_messages:

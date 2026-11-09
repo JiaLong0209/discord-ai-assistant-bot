@@ -4,11 +4,13 @@ from imaplib import Commands
 import re
 import logging
 import discord
-from typing import Union
+from typing import Union, Optional
 from utils.text import remove_time_tag
 from .chat_history import ChatHistoryManager
+from .providers.base import BaseAIProvider
 from .gemini import GeminiService
 from .message_preprocessor import MessagePreprocessor
+from .memory_service import MemoryService
 
 logger = logging.getLogger(__name__)
 
@@ -17,10 +19,19 @@ class AttachmentHandler:
 
 
 class AIResponder:
-    def __init__(self, gemini: GeminiService, history_manager: ChatHistoryManager, bot: discord.Client):
-        self.gemini = gemini
+    def __init__(
+        self,
+        gemini: BaseAIProvider,
+        history_manager: ChatHistoryManager,
+        bot: discord.Client,
+        memory_service: Optional[MemoryService] = None
+    ):
+        self.ai_provider = gemini
+        self.gemini = gemini  # Alias for backward compatibility
         self.history_manager = history_manager
         self.bot = bot
+        self.memory_service = memory_service
+        self.use_server_memory = True
 
     def _log_interaction(self, source, question, answer="", is_image=False):
         guild_name = source.guild.name if source.guild else "DM"
@@ -35,8 +46,13 @@ class AIResponder:
 
     async def get_answer(self, source: Union[discord.Message, discord.Interaction], add_to_history: bool = True) -> str:
         guild_id = source.guild.id if source.guild else 0
+        guild_name = source.guild.name if source.guild else ""
         user_name = source.author.display_name if isinstance(source, discord.Message) else source.user.display_name
         bot_name = self.bot.user.name
+
+        server_memory: Optional[str] = None
+        if self.memory_service and self.use_server_memory and guild_id:
+            server_memory = self.memory_service.get_memory(guild_id, guild_name)
 
         # Preprocess text
         if isinstance(source, discord.Message):
@@ -69,21 +85,23 @@ class AIResponder:
             image_context = " ".join(f"[Image ({i+1}) description: {d}]" for i, d in enumerate(descriptions))
             combined_prompt = f"{image_context}\n{user_name}: {question}"
             logging.info(f"combined_prompt: {combined_prompt}")
-            answer = await self.gemini.ask_with_history(history, combined_prompt)
+            answer = await self.gemini.ask_with_history(history, combined_prompt, server_memory=server_memory)
 
             if add_to_history:
-                self.history_manager.add_user_message(guild_id, user_name, f"[sent image] {question}")
+                if isinstance(source, discord.Interaction):
+                    self.history_manager.add_user_message(guild_id, user_name, f"[sent image] {question}")
                 self.history_manager.add_assistant_message(guild_id, bot_name, answer)
 
             self._log_interaction(source, question, answer, is_image=True)
             return answer
 
         # Normal text
-        answer = await self.gemini.ask_with_history(history, f"{user_name}: {question}")
+        answer = await self.gemini.ask_with_history(history, f"{user_name}: {question}", server_memory=server_memory)
         answer = remove_time_tag(answer)
 
         if add_to_history:
-            self.history_manager.add_user_message(guild_id, user_name, question)
+            if isinstance(source, discord.Interaction):
+                self.history_manager.add_user_message(guild_id, user_name, question)
             self.history_manager.add_assistant_message(guild_id, bot_name, answer)
 
         self._log_interaction(source, question, answer)

@@ -8,12 +8,13 @@ package-mode = false
 
 [tool.poetry.dependencies]
 python = "3.12.7"
-"discord.py" = "^2.4.0"
+"discord.py" = {version = ">=2.7.1", extras = ["voice"]}
 python-dotenv = "^1.0.1"
 google-generativeai = "^0.8.3"
 edge-tts = "^6.1.12"
 pynacl = "^1.5.0"
 pandas = "^2.3.1"
+davey = "^0.2.0"
 
 [tool.poetry.group.dev.dependencies]
 black = "^24.8.0"
@@ -29,4 +30,8 @@ target-version = ["py312"]
 [tool.ruff]
 line-length = 100
 target-version = "py312"
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
 

@@ -35,6 +35,8 @@ class Settings:
     voicevox_config: VoiceVoxConfig
     latest_n_history: int = 10
     backup_dir: str = "storage/backup"
+    memory_dir: str = "storage/memory"
+    memory_update_interval: int = 10
 
 
 def get_settings() -> Settings:
@@ -84,6 +86,8 @@ def get_settings() -> Settings:
     use_guild_sync = os.getenv("USE_GUILD_SYNC", "false").lower() == "true"
     latest_n_history = int(os.getenv("LATEST_N_HISTORY", "10"))
     backup_dir =  os.getenv("BACKUP_DIR", "storage/backup")
+    memory_dir = os.getenv("MEMORY_DIR", "storage/memory")
+    memory_update_interval = int(os.getenv("MEMORY_UPDATE_INTERVAL", "10"))
 
 
     return Settings(
@@ -98,5 +102,7 @@ def get_settings() -> Settings:
         voicevox_config = voicevox_config,
         latest_n_history=latest_n_history,
         backup_dir=backup_dir,
+        memory_dir=memory_dir,
+        memory_update_interval=memory_update_interval,
     )
 
